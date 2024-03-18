@@ -1,0 +1,50 @@
+closeall;
+V_tot = cell(2);
+I_tot = cell(2);
+
+for (i = 1:n_metal_list) {
+    for (j = 1:n_metal_list) {
+        for (k = 1:2){
+            file_tag = '_' + metal_name_list{i} + '_' + metal_name_list{j}+ "_" + flag_illum{k};
+            
+            ?'Analyzing job for ' + file_tag;
+
+            fname = sweep_path + slash + project_name + file_tag + '_rvs.ldev';
+            load(fname);
+            anode = getresult('CHARGE','anode');
+            Vr = anode.V_anode;
+            Vr = Vr(2:length(Vr));
+            Ir = pinch(anode.I);
+            Ir = -Ir(2:length(Ir)) + 1e-16;
+            
+            fname = sweep_path + slash + project_name + file_tag + '_fwd.ldev';
+            load(fname);
+            anode = getresult('CHARGE','anode');
+            Vf = anode.V_anode;
+            If = pinch(anode.I) + 1e-16;
+            
+            V_tot{k} = [flip(Vr,1); Vf];
+            I_tot{k} = [flip(Ir,1); If];            
+            }     
+            title =  metal_name_list{i} + ' and ' + metal_name_list{j};      
+            plotxy(V_tot{1},abs(I_tot{1}*1e3),
+                    V_tot{2},abs(I_tot{2}*1e3),
+                    'Voltage (V)','Current (mA)', title);
+            setplot("log10y", 1);
+            legend('dark','0.5 mW illumination');
+            setplot("legend position", 8);
+            exportfigure(title + ".jpg");
+            
+            # export the data to txt files
+            results_iv = matrix(length(I_tot{1}), 4);
+            results_iv(:, 1) = V_tot{1};
+            results_iv(:, 2) = abs(I_tot{1}*1e3);
+            results_iv(:, 3) = V_tot{2};
+            results_iv(:, 4) = abs(I_tot{2}*1e3);
+            write(title + ".txt", num2str(results_iv, "%.4e"), "overwrite");
+            
+      }
+}
+
+
+load(orig_project);

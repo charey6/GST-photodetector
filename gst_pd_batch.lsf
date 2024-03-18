@@ -1,0 +1,150 @@
+#########################################################
+#
+# Simulate the SiGe LPD response under dark and illuminated
+# conditions.
+#
+#(c) Lumerical Solutions 
+#########################################################
+
+clear;
+
+project_name = 'gst_pd_hex';
+sweep_name = 'metal';
+L = 2e-6;   # active photodetector length
+
+#
+# General setup
+#
+switchtolayout;
+setnamed('::model','pd_length',L);
+setnamed('GST_film','material', 'c-GST-hex');
+
+save;
+orig_project = currentfilename;
+
+slash = '\';  # or '/' for Linux
+sweep_path = pwd + slash + project_name + '_' + sweep_name;
+if(!fileexists(sweep_path)) { 
+  system('mkdir "'+sweep_path+'"'); 
+}
+
+#
+# Setup configurations for simulation
+#
+# In this simulation, compare the effect of different metal on c-GST
+Au = "Au (Gold) - CRC";
+Pt = "Pt (Platinum)";
+Al = "Al (Aluminium) - CRC";
+aGST = "a-GST";
+cGST = "c-GST";
+
+#
+# work function from low to high
+#
+# Al (4.28 eV) has a much smaller work function than c-GST (4.92 eV)
+# Au (5.1 eV) has a similar work function than c-GST (4.92 eV)
+# Pt (5.65 eV) has a much larger work function than c-GST (4.92 eV)
+metal_list = {Al, Au, Pt}; # Lumerial only supports structure for array of strings
+metal_name_list = {"Al", "Au", "Pt"};
+n_metal_list = length(metal_list);
+flag_illum = {"dark", "illu_0.5mW"};
+
+#
+# Load the job queue (simulate forward and reverse bias separately
+#
+clearjobs;
+for (i = 1:n_metal_list) {
+    for (j = 1:n_metal_list) {
+        for (k = 1:2){
+            file_tag = '_' + metal_name_list{i} + '_' + metal_name_list{j}+ "_" + flag_illum{k};
+
+            ?'Building job for ' + file_tag;
+            
+            switchtolayout;
+            # change the contact
+            select("contact_left");
+            set("material", metal_list{i});
+            select("contact_right");
+            set("material", metal_list{j});
+                        
+            # set the optical generation rate
+            select("CHARGE::OGR");
+            if(k==1){
+                set("enabled", 0);
+                }
+            else{
+                set("enabled", 1);
+            }
+            
+            # calculate forward and reverse bias separately to ensure convergence
+            #
+            #reverse bias
+            #
+            select('CHARGE::boundary conditions::anode');
+            set('range start',0);
+            set('range stop',-3);
+            set('range num points',31);
+            
+            fname = sweep_path + slash + project_name + file_tag + '_rvs.ldev';
+            save(fname);
+            addjob(fname);
+            
+            #
+            # forward bias
+            #
+            select('CHARGE::boundary conditions::anode');
+            set('range start', 0);
+            set('range stop',3);
+            set('range num points',31);
+            
+            fname = sweep_path + slash + project_name + file_tag + '_fwd.ldev';
+            save(fname);
+            addjob(fname);
+        }
+    }
+}
+load(orig_project);
+
+#
+# Run jobs
+#
+runjobs;
+
+#
+# Analyze results
+#
+V_tot = cell(2);
+I_tot = cell(2);
+
+for (i = 1:n_metal_list) {
+    for (j = 1:n_metal_list) {
+        for (k = 1:2){
+            file_tag = '_' + metal_name_list{i} + '_' + metal_name_list{j}+ "_" + flag_illum{k};
+            
+            ?'Analyzing job for ' + file_tag;
+
+            fname = sweep_path + slash + project_name + file_tag + '_rvs.ldev';
+            load(fname);
+            anode = getresult('CHARGE','anode');
+            Vr = anode.V_anode;
+            Vr = Vr(2:length(Vr));
+            Ir = pinch(anode.I);
+            Ir = -Ir(2:length(Ir)) + 1e-12;
+            
+            fname = sweep_path + slash + project_name + file_tag + '_fwd.ldev';
+            load(fname);
+            anode = getresult('CHARGE','anode');
+            Vf = anode.V_anode;
+            If = pinch(anode.I) + 1e-12;
+            
+            V_tot{k} = [flip(Vr,1); Vf];
+            I_tot{k} = [flip(Ir,1); If];            
+            }            
+            plotxy(V_tot{1},abs(I_tot{1}*1e3),
+                    V_tot{2},abs(I_tot{2}*1e3),
+                    'Voltage (V)','Current (mA)', metal_name_list{i} + ' & ' + metal_name_list{j});
+            legend('dark','0.5 mW illumination');
+      }
+}
+
+load(orig_project);
